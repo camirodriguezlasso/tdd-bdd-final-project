@@ -27,9 +27,11 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db, DataValidationError
 from service import app
+from unittest.mock import MagicMock
 from tests.factories import ProductFactory
+
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
@@ -132,6 +134,50 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(len(products), 1)
         self.assertEqual(products[0].id, original_id)
         self.assertEqual(products[0].description, "testing")
+
+    def test_update_without_id(self):
+        """It should not update without id"""
+        product = ProductFactory()
+        product.id = None
+        self.assertRaises(DataValidationError, product.update)
+
+    def test_deserialize_invalid_available(self):
+        """It should not Deserialize with invalid available"""
+        product = ProductFactory()
+        product.available = "yes"
+        data = product.serialize()
+        with self.assertRaises(DataValidationError) as context: product.deserialize(data)
+
+    def test_deserialize_invalid_category(self):
+        """It should not Deserialize with invalid category"""
+        product_data = {
+            "name": "Hat",
+            "description": "A test product",
+            "price": "19.99",
+            "available": True,
+            "category": "INVALID_CATEGORY",
+        }
+        product = Product()
+        with self.assertRaises(DataValidationError) as context: product.deserialize(product_data)
+        self.assertIn("Invalid attribute:", str(context.exception))
+
+    def test_deserialize_missing_name_key(self):
+        """It should not Deserialize with a missing key"""
+        product_data = {
+            # "name": "Hat",
+            "description": "A test product",
+            "price": "19.99",
+            "available": True,
+            "category": Category.UNKNOWN,
+        }
+        product = Product()
+        with self.assertRaises(DataValidationError) as context: product.deserialize(product_data)
+        self.assertIn("Invalid product: missing name", str(context.exception))
+
+    def test_deserialize_invalid_type(self):
+        product = ProductFactory()
+        with self.assertRaises(DataValidationError) as context: product.deserialize(None)
+        self.assertIn("Invalid product: body of request contained bad or no data", str(context.exception))
 
     def test_delete_a_product(self):
         """It should Delete a Product"""
